@@ -1,0 +1,271 @@
+---
+title: "Homework 3 - 131 "
+author: "Kalvin Goode (9454554), Ray Fan(8783920)"
+date: "May 26, 2019 "
+output: pdf_document
+urlcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, 
+                      cache=FALSE, 
+                      fig.align='center')
+indent1 = '    '      
+indent2 = paste(rep(indent1, 2), collapse='')
+```
+
+For this homework you will need use the following packages. 
+
+```{r, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(ROCR)
+library(tree)
+library(maptree)
+library(class)
+library(lattice)
+library(ggridges)
+library(superheat)
+library(dendextend)
+
+```
+
+```{r, warning=FALSE, message=FALSE}
+drug_use <- read_csv('drug.csv',
+col_names = c('ID','Age','Gender','Education','Country','Ethnicity',
+'Nscore','Escore','Oscore','Ascore','Cscore','Impulsive',
+'SS','Alcohol','Amphet','Amyl','Benzos','Caff','Cannabis',
+'Choc','Coke','Crack','Ecstasy','Heroin','Ketamine',
+'Legalh','LSD','Meth','Mushrooms','Nicotine','Semer','VSA'))
+```
+
+## 1. Logistic regression for drug use prediction
+This problem has 3 parts for 131 students and 4 parts for 231 students.  As mentioned, the data uses some strange encodings for variables.  For instance, you may notice that the gender variable has type `double`. Here the value -0.48246 means male and 0.48246 means female.  Age was recorded at a set of categories but rescaled to a mean 0 numeric variable (we will leave that variable as is).  Similarly education is a scaled numeric quantity (we will also leave this variable as is).  We will however, start by transforming gender, ethnicity, and country to factors, and the drug response variables as ordered factors:
+
+
+```{r}
+drug_use <- drug_use %>% mutate_at(as.ordered, .vars=vars(Alcohol:VSA))
+drug_use <- drug_use %>%
+  mutate(Gender = factor(Gender, labels=c("Male", "Female"))) %>%
+  mutate(Ethnicity = factor(Ethnicity, labels=c("Black", "Asian", "White", 
+                                                "Mixed:White/Black", "Other", 
+                                                "Mixed:White/Asian", 
+                                                "Mixed:Black/Asian"))) %>%
+  mutate(Country = factor(Country, labels=c("Australia", "Canada", "New Zealand", 
+                                            "Other", "Ireland", "UK", "USA")))
+```
+
+__(a)__.  Define a new factor response variable `recent_cannabis_use` which is "Yes" if a person has used cannabis within a year, and "No" otherwise.  This can be done by checking if the `Cannabis` variable is _greater than or equal_ to `CL3`. Hint: use `mutate` with the `ifelse` command.  When creating the new factor set `levels` argument to `levels=c("No", "Yes")` (in that order). 
+
+
+```{r}
+drug_use=drug_use%>%
+    mutate(recent_cannabis_use=factor(ifelse(Cannabis%in%c("CL3","CL4","CL5","CL6"),"Yes","No"),levels=c("No","Yes")))
+drug_use
+```
+
+      
+
+__(b).__ We will create a new tibble that includes a subset of the original variables.  We will focus on all variables between `age` and `SS` as well as the new factor related to recent cannabis use.  Create `drug_use_subset` with the command:
+
+```{r}
+set.seed(25252)
+drug_use_subset<-drug_use%>%select(Age:SS, recent_cannabis_use)
+
+index=sample(nrow(drug_use_subset),1500)
+drug_use_train=drug_use_subset[index,]
+drug_use_test=drug_use_subset[-index,]
+
+dim(drug_use_train)
+dim(drug_use_test)
+
+```
+
+    
+__(c).__  Fit a logistic regression to model `recent_cannabis_use` as a function of all other predictors in `drug_use_train`.  Fit this regression using the training data only.  Display the results by calling the `summary` function on the logistic regression object.
+
+```{r}
+
+fit=glm(recent_cannabis_use~.,data=drug_use_train,family="binomial")
+summary(fit)
+```
+
+
+
+## 2. Decision tree models of drug use
+
+This problem has 3 parts for all students.
+
+Construct a decision tree to predict `recent_cannabis_use` using all other predictors in `drug_use_train`.  Set the value of the argument `control = tree_parameters` where `tree_parameters` are:
+
+```{r dependson="train_test2"}
+tree_parameters = tree.control(nobs=nrow(drug_use_train), minsize=10, mindev=1e-3)
+tree_train=tree(recent_cannabis_use~.,data=drug_use_train,control=tree_parameters)
+summary(tree_train)
+```
+This sets the smallest number of allowed observations in each leaf node to 10 and requires a deviance of at least 1e-3 to split a node.
+
+        
+__(a).__ Use 10-fold CV to select the a tree which minimizes the cross-validation misclassification  rate.  Use the function `cv.tree`, and set the argument `FUN=prune.misclass`.  Note: you do not need to use a `do.chunk` function since the `tree` package will do cross validation for you.  Find the size of the tree which minimizes the cross validation error.  If multiple trees have the same minimum cross validated misclassification rate, set `best_size` to the smallest tree size with that minimum rate. 
+
+```{r}
+set.seed(1)
+fold=10
+tree=cv.tree(tree_train,K=fold,FUN=prune.misclass)
+size=min(tree$size[tree$dev==min(tree$dev)])
+size
+```
+
+
+        
+__(b).__ Prune the tree to the size found in the previous part and plot the tree using the `draw.tree` function from the `maptree` package. Set `nodeinfo=TRUE`.  Which variable is split first in this decision tree? 
+
+```{r}
+tree.prun=prune(tree_train,best=size)
+draw.tree(tree.prun,nodeinfo=TRUE,size=2,cex=0.7)
+title("Classification Tree")
+```
+    
+
+__(c).__ Compute and print the confusion matrix for the _test_ data using the function `table(truth, predictions)` where `truth` and `predictions` are the true classes and the predicted classes from the tree model respectively.  Note: when generated the predicted classes for the test data, set `type="class"` in the `predict` function. Calculate the true positive rate (TPR) and false positive rate (FPR) for the confusion matrix.  Show how you arrived at your answer.
+
+```{r}
+pred=predict(tree.prun,drug_use_test,type="class")
+t=table(Truth=drug_use_test$recent_cannabis_use,Prediction=pred)
+t
+FPR=t[2,2]/(t[2,2]+t[2,1])
+TPR=t[1,2]/(t[1,1]+t[1,2])
+```
+```{r}
+FPR
+```
+```{r}
+TPR
+```
+
+
+##  3. Model Comparison
+
+This problem has 2 parts for all students. 
+
+__(a).__ Plot the ROC curves for both the logistic regression fit and the decision tree on the same plot.  Use `drug_use_test` to compute the ROC curves for both the logistic regression model and the best pruned tree model.
+
+
+```{r}
+pred2=predict(fit,newdata=drug_use_test,type="response")
+prediction1=prediction(pred2,drug_use_test$recent_cannabis_use)
+performance1=performance(prediction1,measure="tpr",x.measure="fpr")
+plot(performance1)
+treepred=predict(tree.prun,drug_use_test,type="vector")[,2]
+prediction2=prediction(treepred,drug_use_test$recent_cannabis_use)
+performance2=performance(prediction2,measure="tpr",x.measure="fpr")
+plot(performance2,col='red',add=TRUE)
+legend(0.5,0.3,col=c(1,2),legend=c("glm","tree"),lty=1,lwd=c(2,1))
+```
+      
+__(b).__ Compute the AUC for both models and print them.  Which model has larger AUC?
+```{r}
+aucp1=performance(prediction1,measure="auc")
+aucp2=performance(prediction2,measure="auc")
+aucp1@y.values
+aucp2@y.values
+```
+
+According to the result, the logistic model has a larger AUC. 
+
+
+# 4. Clustering and dimension reduction for gene expression data
+
+This problem involves the analysis of gene expression data from 327 subjects from Yeoh _et al_ (2002). The data set includes abundance levels for 3141 genes and a class label indicating one of 7 leukemia subtypes the patient was diagnosed with.   The paper describing their analysis of this data can be found [here](http://www.sciencedirect.com/science/article/pii/S1535610802000326). Read in the csv data in  `leukemia_data.csv`.  It is posted on Piazza in the resources tab with the homework:
+
+
+```{r, results="hide", message=FALSE, warning=FALSE}
+leukemia_data <- read_csv("leukemia_data.csv")
+```
+
+
+
+__(a).__ The class of the first column of `leukemia_data`, `Type`, is set to `character` by default. Convert the `Type` column to a factor using the `mutate` function.  Use the `table` command to print the number of patients with each leukemia subtype.  Which leukemia subtype occurs the least in this data? 
+
+```{r}
+leukemia_data <- leukemia_data %>%
+mutate(Type = factor(Type))
+leukemia_data$Type %>% table
+```
+```{r}
+leukemia_data$Type[which.min(leukemia_data$Type)]
+```
+
+According to the result above, leukemia subtype occurs the least in this data is BCR-ABL.
+
+__(b).__ Run PCA on the leukemia data using `prcomp` function with `scale=TRUE` and `center=TRUE` (this scales each gene to have mean 0 and variance 1).  Make sure you exclude the `Type` column when you run the PCA function (we are only interested in reducing the dimension of the gene expression values and PCA doesn't work with categorical data anyway).  Plot the proportion of variance explained by each principal component (PVE) and the cumulative PVE side-by-side.
+
+
+
+```{r}
+leukemia_new <- leukemia_data %>% select(-1)
+pca<-leukemia_new %>%
+prcomp(scale=TRUE,center=TRUE)
+sdev<-pca$sdev
+pve <- sdev^2 / sum(sdev^2)
+cumulative_pve <- cumsum(pve) 
+
+## This will put the next two plots side by side    
+par(mfrow=c(1, 2))
+
+## Plot proportion of variance explained
+plot(pve, type="l", lwd=3)
+plot(cumulative_pve, type="l", lwd=3,
+     xlab = "Principal Component",
+     ylab = "Cumulative PVE",ylim = c(0,1))
+```
+
+    
+__(c).__  Use the results of PCA to project the data into the first two principal component dimensions. `prcomp` returns this dimension reduced data in the first columns of `x`.  Plot the data as a scatter plot using `plot` function with `col=plot_colors` where `plot_colors` is defined 
+
+```{r}
+rainbow_colors <- rainbow(7)
+plot_colors <- rainbow_colors[leukemia_data$Type]
+plot(pca$x,col=plot_colors)
+text(pca$x,labels=leukemia_data$Type,col = plot_colors)
+```
+
+
+Due to the unclearness of this picture, a text result is returned below:
+```{r}
+pc1<-pca$rotation[,1]
+sort.pc1<-sort(abs(pc1),decreasing = T)
+head(sort.pc1)
+```
+
+Therefore, genes with highest absolute loadings for PC1 are SEMA3F,CCT2,LDHB,COX6C,SNRPD2 and
+ELK3.
+
+(f).
+```{r}
+leusub=leukemia_data%>%
+      filter(leukemia_data$Type %in% c("T-ALL","TEL-AML1","Hyperdip50"))
+
+dist=dist(scale(leusub[,-1]),method="euclidean")
+leuhier=hclust(dist,method="complete")
+
+
+dend1=as.dendrogram(leuhier) %>%
+                color_branches(k=3) %>%
+                color_labels(k=3) %>%
+                set("labels_cex",0.1) %>%
+            set_labels(.,labels=leusub$Type[order.dendrogram(.)])%>%
+            plot(horiz=TRUE)
+
+dend2=as.dendrogram(leuhier) %>%
+                color_branches(k=5) %>%
+                color_labels(k=5) %>%
+                set("labels_cex",0.3) %>%
+            set_labels(.,labels=leusub$Type[order.dendrogram(.)])%>%
+            plot(horiz=TRUE)
+
+
+```
+

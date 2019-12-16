@@ -1,0 +1,323 @@
+---
+title: "Pstat 131 HW1"
+author: "Kalvin Goode (9454554), Patrick Chen (970890)"
+date: "2019/4/11"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ISLR)
+library(ggplot2)
+library(reshape2)
+library(plyr)
+library(dplyr)
+library(class)
+```
+
+
+```{r load, message=F, warning=F, results="hide"}
+algae<-read_table2("algaeBloom.txt",col_names=c('season','size','speed','mxPH','mnO2', 
+'Cl','NO3','NH4','oPO4','PO4','Chla','a1','a2','a3','a4','a5','a6','a7'),na="XXXXXXX")
+glimpse(algae)
+```
+
+1.
+(a)
+```{r}
+algae %>%
+  group_by(season) %>%
+  dplyr::summarize(summary=n())
+```
+
+(b) 
+```{r}
+!all(!is.na(algae)) #If no missing value, is.na() shows all false, ! makes them all TRUE. 
+#So, all() shows TRUE only if no missing value in data
+```
+
+Yes, there are missing values.
+
+```{r,message=F}
+algae %>%
+  dplyr::summarize_each(funs(mean(.,na.rm=TRUE)),c('mxPH':'Chla'))
+
+algae %>%
+  dplyr::summarize_each(funs(var(.,na.rm=TRUE)),c('mxPH':'Chla'))
+```
+
+We notice that among these chemicals, Cl, NH4, oPO4 and PO4 have large mean and variance ratio. Especially for NH4 and PO4, which have variances 100 times greater then their mean.
+
+
+(c)
+```{r,message=F}
+algae %>%
+  dplyr::summarize_each(funs(median(.,na.rm=TRUE)),c('mxPH':'Chla'))
+
+algae %>%
+  dplyr::summarize_each(funs(mad(.,constant=1,na.rm=TRUE)),c('mxPH':'Chla'))
+```
+
+We see that the chemicals mxPH and mn02 have the largerst difference in term of percentage between MAD and median. Other than this, we also see that MAD and median of that chemical is always smaller than mean and variance of that chemical. We believe that the reason is that MAD and median mitigate the effect on outliers for each chemical.
+
+2.
+(a)
+```{r,message=F,warning=F}
+ggplot(data=algae,aes(x=algae$mxPH,stat(density)))+    
+              geom_histogram()+ggtitle("mxPH")
+```
+
+From the graph above, we see that the graph is roughly normal and is not skewed.
+
+(b)
+```{r,message=F,warning=F}
+ggplot(data=algae,aes(x=algae$mxPH))+geom_histogram(aes(y=stat(density)))+
+          ggtitle("mxPH")+geom_density()+geom_rug()
+```
+(c)
+```{r}
+ggplot(data=algae,aes(x=algae$size,y=a1))+geom_boxplot()+
+            xlab("a1")+ylab("Amount of a1")+
+            ggtitle("A conditioned Boxplot of Algal a1")
+```
+
+(d)
+```{r,warning=F}
+ggplot(data=algae,aes(,y=algae$NO3))+geom_boxplot()+
+            xlab("NO3")+ylab("Amount of NO3")+
+            ggtitle("Boxplot of NO3")
+```
+
+```{r,warning=F}
+ggplot(data=algae,aes(,y=algae$NH4))+geom_boxplot()+
+            xlab("NH4")+ylab("Amount of NH4")+
+            ggtitle("Boxplot of NH4")
+```
+
+
+```{r}
+out=function(x)
+{
+  lower=quantile(x,0.25,na.rm=TRUE)-1.5*IQR(x,na.rm=TRUE)
+  upper=quantile(x,0.75,na.rm=TRUE)+1.5*IQR(x,na.rm=TRUE)
+  outliers=(x<lower)|(x>upper)
+  count=length(na.omit(x[outliers]))
+  return(count)
+}
+
+sprintf("The amount of outliers of NO3 and NH4 are %i and %i, respectively.", 
+        out(algae$NO3), out(algae$NH4))
+```
+We show boxplot of NO3 and NH4 to check if outliers exists, then we wrote a function to count the amount of outlier for each elements. The defintion of an outlier is a number that is more than 1.5 times the length of data from lower or upper quartiles.
+
+(e)
+```{r,message=F}
+algae %>%
+  dplyr::summarize_each(funs(mean(.,na.rm=TRUE), 
+                             var(.,na.rm=TRUE)), c("NO3","NH4"))
+algae %>%
+  dplyr::summarize_each(funs(median(.,na.rm=TRUE), 
+                             mad(.,constant=1,na.rm=TRUE)), c("NO3","NH4"))
+                             
+```
+
+For these two chemicals, we see that the ratio of mean and variance is significantly larger than the ratio of median and MAD. Therefore, we conclude that using median and MAD for measures is much more robust than using mean and variance when outliers are present. The outliers would dramatically increase the value of variance while having little effect on median and MAD.
+
+
+3.
+(a)
+```{r}
+sprintf("There are %i variables and %i obervations that have missing values.", sum(colSums(is.na(algae))>0), sum(rowSums(is.na(algae))>0))
+
+sprintf("Below is the summary chart for amount of missing value for each predictors.")
+colSums(is.na(algae))
+```
+
+(b)
+```{r}
+algae.del=algae%>%
+  filter(complete.cases(algae))
+sprintf("Now, there are %i observation in algae.del.",  nrow(algae.del))
+```
+
+(c)
+```{r}
+algae.med=algae%>%
+  mutate_at(vars(c("mxPH":"Chla")),
+          .~ifelse(is.na(.),median(.,na.rm=TRUE),.))
+sprintf("Now, there are %i observation in algae.med.",nrow(algae.med))
+
+for (x in c(48,62,199))
+{
+  print(algae.med[x,4:11])
+}
+
+```
+
+
+
+(d)
+```{r}
+cor(algae[,4:11],use="pairwise.complete.obs")
+
+relation=lm(algae$PO4~algae$oPO4) #make a linear regression on y=PO4 and x=oPO4
+predict(relation)[29]
+algae$PO4[28]=predict(relation)[28]
+algae$PO4[28]
+```
+
+
+(e)
+
+If we impute missing values with mean or medians, we may have a biased result because it would have smaller variance and does not reflect the uncertainty on prediction of unknown missing values. Such process would cause survivorship bias. ALso, for small sample size, the estimation can be dramatically different compare with and without impution. 
+
+
+
+4.
+(a)
+```{r}
+nfold=5
+set.seed(10)
+folds=cut(1:nrow(algae.med), breaks=nfold, labels=FALSE) %>% sample()
+folds
+```
+
+
+(b)
+```{r}
+do.chunk <- function(chunkid, chunkdef, dat)
+{ # function argument
+  train = (chunkdef != chunkid)
+  Xtr = dat[train,1:11] # get training set
+  Ytr = dat[train,12] # get true response values in trainig set
+  Xvl = dat[!train,1:11] # get validation set
+  Yvl = dat[!train,12] # get true response values in validation set
+  lm.a1 <- lm(a1~., data = dat[train,1:12])
+  predYtr = predict(lm.a1) # predict training values
+  predYvl = predict(lm.a1,Xvl) # predict validation values
+  data.frame(fold = chunkid,
+            train.error = mean((predYtr - Ytr$a1)^2), 
+            # compute and store training error
+            val.error = mean((predYvl - Yvl$a1)^2)) 
+            # compute and store test error
+}
+
+ldply(1:nfold, do.chunk, folds, algae.med)
+```
+
+
+
+5.
+(a)
+```{r,message=F,warning=F}
+algae.Test <- read_table2('algaeTest.txt',
+col_names=c('season','size','speed','mxPH','mnO2','Cl','NO3',
+'NH4','oPO4','PO4','Chla','a1'),
+na=c('XXXXXXX'))
+```
+
+```{r}
+lm.a1=lm(a1~., data=algae.med[,1:12])
+Xtr = algae.med[,1:11] # get training set
+Ytr = algae.med[,12] # get true response values in trainig set
+Xvl = algae.Test[,1:11] # get validation set
+Yvl = algae.Test[,12] # get true response values in validation set
+lm.a1 <- lm(a1~., data = algae.med[,1:12])
+predYtr = predict(lm.a1) # predict training values
+predYvl = predict(lm.a1,Xvl) # predict validation values
+train.error = mean((predYtr - Ytr$a1)^2) # compute and store training error
+val.error = mean((predYvl - Yvl$a1)^2) # compute and store test error
+
+train.error 
+val.error
+```
+
+We see that, compare with problem 4, the training error is roughly the same, but this new test error is smaller than most of the previous, test errors. This shows that this new model is fit for new dataset.
+
+
+6.
+(a)
+```{r}
+library(ISLR)
+head(Wage)
+```
+
+```{r,message=F,warning=F}
+data(Wage)
+ggplot(data=Wage, aes(x=age, y=wage))+
+  geom_point()+geom_smooth()+
+  xlab("Age")+ylab("Wage")+
+  ggtitle("Plot of wage vs age")
+```
+
+We see that the relationship between Age and Wage is not really linear. Notably between age 30 and 65, we see that there are outliers that earn above 250 while most of the wages is below 200. Also, as age increase, we see that there are less and less data points. These match our expectation because people tend to retire after 65 years old.
+
+(b).
+```{r}
+nfold=5
+set.seed(11)
+folds=cut(1:nrow(Wage), breaks=nfold, labels=FALSE) %>% sample()
+do.chunk1=function(chunkid,folddef,dat) #constant polynomial
+{
+  train=(folddef!=chunkid) 
+  Xtr=dat[train,2]
+  Ytr=dat[train,11] 
+  Xvl=dat[!train,2] 
+  Yvl=dat[!train,11]
+  
+  poly1=lm(wage~1,data=dat[train,c(2,11)])
+  pdYtr=predict(poly1)
+  pdYvl=predict(poly1,newdata=dat[!train,c(2,11)])
+  data.frame(fold=chunkid,
+    train.error=mean((pdYtr-Ytr)^2), 
+    # compute and store training error
+    val.error=mean((pdYvl-Yvl)^2))
+  # compute and store test error
+}
+table=NULL
+table=rbind(table,ldply(1:nfold, do.chunk1,folds, Wage)) 
+#combine result
+
+
+do.chunk2=function(chunkid,folddef,dat,deg) #polynomial
+{
+  train=(folddef!=chunkid) 
+  Xtr=dat[train,2]
+  Ytr=dat[train,11] 
+  Xvl=dat[!train,2] 
+  Yvl=dat[!train,11]
+  
+  poly=lm(wage~poly(age,degree=deg,raw=FALSE),
+          data=dat[train,c(2,11)])
+  pdYtr=predict(poly)
+  pdYvl=predict(poly,newdata=dat[!train,c(2,11)])
+  data.frame(fold=chunkid,
+    train.error=mean((pdYtr-Ytr)^2), 
+    # compute and store training error
+    val.error=mean((pdYvl-Yvl)^2))
+  # compute and store test error
+}
+
+for(deg in 1:10)
+  table=rbind(table,ldply(1:nfold, do.chunk2,folds, Wage, deg))
+
+sequence=c(0,0,0,0,0,1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,4,4,4,4,4,5,5,5,5,5,6,6,6,6,6,7,7,7,7,7,8,8,8,8,8,9,9,9,9,9,10,10,10,10,10)
+DataFrame=cbind(table,sequence)
+colnames(DataFrame)=c("fold","train.error","val.error","degree")
+mean=DataFrame %>%
+  group_by(degree) %>%
+  summarize_at(.funs=funs(mean),.var=vars(train.error, val.error))
+
+mean
+```
+
+c.
+```{r}
+plot(train.error~degree, data=mean, xlab="p", ylab="Training Error",
+main="Plot of Training Error and Test Error",col="blue", type="l")
+lines(mean$degree,mean$val.error,col="Red")
+legend(7,1700,c("Training error", "Test error"), col=c("Blue","Red"), text.col=c("Blue","Red"),lty=c(1))
+```
+
+From the graph above, we see that the errors decrease dramatically between p=0 and p=2. After p=2, the test errors remain consistent. When choosing model, we want to have the most simplest model while having low test errors. Therefore, we decide that the model for this relationship is $wage=\beta_0+\beta_1 age+\beta_2 age^2+\epsilon$
