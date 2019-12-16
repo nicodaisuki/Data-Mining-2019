@@ -1,0 +1,619 @@
+---
+title: "Pstat 131 Project"
+author: "Kalvin Goode (9454554), Patrick Chen (970890)"
+date: "2019/5/26"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tree)
+library(plyr)
+library(rpart)
+library(maptree)
+install.packages("treemap")
+library(treemap)
+library(ROCR)
+library(ISLR)
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(class)
+library(tree)
+library(class)
+library(lattice)
+library(ggridges)
+library(superheat)
+library(dendextend)
+library(maps)
+library(ggmap)
+library(Rtsne)
+library(NbClust)
+library(maptree)
+```
+
+1. First, before election voting day,voters' behavior can be easily changed after the candidate express opinions or actions that voters may or may not strongly agree with. For example, President Trump had proposed and insisted political views on the neccessity of building wall between US and Mexico. This view was strongly viewed as racist to many voters. However. as he continued to take series of action to make "America Great Again", people have shifted more faith toward President Trump. Another reason that makes prediction hard is the voters' honesty. Many voters who supported candidates may be hesitate to tell surveyors their opinion even if the survey is anonymous since some voters feel that he or she may be in threat to report such opinion.
+
+
+
+2. Silver used Bayesian statistic approach and time series to calculate the probability for a candidate to win in one state. In addition, Silver collect variables that can affect voters' behavior if occured. For example, with prior probability and past data, the model simulated forward to election day to estimate the winning chance of each candidate for state and national. To account for possible bias errors, Silver use previous election polls and result to estimate possible bias for the current polls to adjust deviates in the model. With these techniques and scrutiny, Silver was having a better prediction model than others in 2012 election.
+
+
+
+3. Almost all of the prediction models had overestimated Chlinton's votes and underestimated Trump's votes. In practice, poll forecasts try to reduce error by combining many different other polls. In worst situation, if the polls are not recent or good enough, the error does not reduce and can exagerated to the opposite direction of truth probability. Many voters were relunctant to tell surveys who they truly support if the candidate's political views were ambiguous. We proposed one good method to reduce this type of error, we suggest that the surveyer should emphasize the anonymity of survey and importance of surveys. Additionally, provide reward after survey, and require comments and reason for supporting condidate can ensure much better honesty.
+
+
+```{r}
+election.raw = read.csv("data/election/election.csv") %>% as.tbl
+census_meta = read.csv("data/census/metadata.csv", sep = ";") %>% as.tbl
+census = read.csv("data/census/census.csv") %>% as.tbl
+census$CensusTract = as.factor(census$CensusTract)
+
+#election.raw = read.csv("D:/downloads/temp/Pstat 131/Project/data/election/election.csv") %>% as.tbl
+#census_meta = read.csv("D:/downloads/temp/Pstat 131/Project/data/census/metadata.csv", sep = ";") %>% as.tbl
+#census = read.csv("D:/downloads/temp/Pstat 131/Project/data/census/census.csv") %>% as.tbl
+#census$CensusTract = as.factor(census$CensusTract)
+```
+
+```{r}
+election_federal=election.raw%>%
+                  filter(fips=="US")
+election_state=election.raw%>%
+                  filter(fips!="US",!fips%in%c(1:99999))
+election=election.raw%>%
+                  filter(fips%in%c(1:99999))
+
+```
+
+
+
+5. We see that there are 31 presidential candidates in 2016 election.
+```{r}
+his=election_federal%>%
+    ggplot(data=.,aes(x=reorder(candidate,-votes),y=votes))+geom_col()+scale_y_log10()+xlab("")+ggtitle("2016 Election")+theme(axis.text.x=element_text(angle = 90, hjust = 1),plot.title=element_text(hjust=0.5,face="bold"))
+his
+#    ggtitle("Chart of 2016 Election")+theme(plot.title = #element_text(hjust = 0.5))
+#his
+```
+
+
+6.
+```{r}
+state_winner=election_state%>%
+              dplyr::group_by(state)%>%
+              dplyr::mutate(total=sum(votes))%>%
+              dplyr::mutate(pct=votes/total)%>%
+              dplyr::top_n(1,pct)
+        
+county_winner=election%>%
+              dplyr::group_by(fips)%>%
+              dplyr::mutate(total=sum(votes))%>%
+              dplyr::mutate(pct=votes/total)%>%
+              dplyr::top_n(1,pct)
+head(state_winner)
+head(county_winner)
+```
+
+```{r}
+states = map_data("state")
+ggplot(data = states) +
+geom_polygon(aes(x = long, y = lat, fill = region, group = group), color = "white") +
+coord_fixed(1.3) +
+guides(fill=FALSE) # color legend is unnecessary and takes too long
+```
+
+
+7.
+```{r}
+counties = map_data("county")
+ggplot(data = counties) +
+geom_polygon(aes(x = long, y = lat, fill = subregion, group = group), color = "white") +
+coord_fixed(1.3) +
+guides(fill=FALSE)
+```
+
+
+8.
+```{r, warning=FALSE, message=FALSE}
+states = map_data("state")
+states=states%>%mutate(fips=state.abb[match(region,tolower(state.name))])%>%left_join(state_winner)
+#state_winner$state=as.character(state_winner$state)
+#states=left_join(states,state_winner,by=c("fips"="state"))
+ggplot(data = states) +
+geom_polygon(aes(x = long, y = lat, fill = candidate, group = group), color = "white") +
+coord_fixed(1.3) +ggtitle("Map of State Winner")+theme(plot.title=element_text(hjust=0.5,face="bold"))+
+guides(fill=FALSE) # color legend is unnecessary and takes too long
+
+```
+
+9.
+```{r}
+county.fips=county.fips%>%separate(col="polyname",c("state","county"),sep=",")
+counties=left_join(counties,county.fips,by=c("region"="state","subregion"="county"))
+counties$fips=as.character(counties$fips)
+county_winner$fips=as.character(county_winner$fips)
+county=left_join(county_winner,counties,by=c("fips"="fips"))
+ggplot(data = county) +
+geom_polygon(aes(x = long, y = lat, fill = candidate, group = fips), color = "white") +
+coord_fixed(1.3) +ggtitle("Map of County Winner")+theme(plot.title=element_text(hjust=0.5,face="bold"))+
+guides(fill=FALSE)
+```
+
+
+10.
+
+```{r, warning=FALSE, message=FALSE}
+census_state=census%>%na.omit()%>%mutate(state = state.abb[match(State, state.name)]) %>% left_join(state_winner)
+#treemap(census_state,index=c("candidate","State"),vSize="Men",type="index",title="Men Voters",ymod.label=c(2.1,0))
+treemap(census_state,index=c("candidate","State"),vSize="TotalPop",type="index",title="Voters",.ymod.label=c(2.1,0))
+
+treemap(census_state,index=c("candidate","State"),vSize="IncomePerCap",type="index")
+treemap(census,index="State",vSize="IncomePerCap",type="index")
+
+
+#census%>%mutate(WhitePop=White*TotalPop)%>%
+#  treemap(index="State",vSize="WhitePop",type="index")
+#census%>%mutate(Minority=Hispanic+Black+Native+Asian+Pacific)%>%
+#  treemap(index="State",vSize="Minority",type="index") 
+#census
+
+```
+
+We see that 
+
+
+11.
+```{r, warning=FALSE, message=FALSE}
+census.del=census%>%
+            na.omit()%>%
+            dplyr::mutate(Employed=Employed*100/(Men+Women),
+                    Citizen=Citizen*100/(Men+Women),
+                    Men=Men*100/(Men+Women),
+                    Minority=Hispanic+Black+Native+Asian+Pacific)%>%
+            dplyr::select(-c("Hispanic","Black","Native","Asian","Pacific","Women","Walk","PublicWork","Construction"))
+   
+census.subct=census.del%>%
+              dplyr::group_by(State,County)%>%
+              add_tally(wt=TotalPop)%>%
+              mutate(CountyTotal=n,Weight=TotalPop/CountyTotal)%>%
+              select(-n)
+census.ct=census.subct%>%
+          dplyr::group_by(State,County)%>%
+          dplyr::summarize_at(c(4:29),funs(round(sum(.*Weight),2)))
+head(census.ct)
+```
+
+12.
+```{r}
+ct.pc=census.ct%>%
+      ungroup%>%
+      dplyr::select(TotalPop:Minority)%>%
+      prcomp(scale=TRUE,center=TRUE)
+
+subct.pc=census.subct%>%
+      ungroup%>%
+      dplyr::select(TotalPop:Minority)%>% #?
+      prcomp(scale=TRUE,center=TRUE)
+ct.pca=ct.pc$rotation[,1:2]
+subct.pca=subct.pc$rotation[,1:2]
+
+index_ct=order(abs(ct.pca[,1]),decreasing=TRUE)
+index_subct=order(abs(subct.pca[,1]),decreasing=TRUE)
+ct.pca=ct.pca[index_ct,]
+subct.pca=subct.pca[index_subct,]
+head(ct.pca,5)
+head(subct.pca,5)
+```
+
+We see that prominent loadings in county-level data are IncomePer Cap, ChildPoverty and Poverty. Prominent loadings in subcounty-level data are IncomePer Cap, Professional and Professional.
+
+
+13.
+```{r}
+ct_hc=census.ct%>% 
+        ungroup()%>% 
+        dplyr::select(-c(State,County))%>%
+        dist(scale(.),method="euclidean")%>%
+        hclust(method="complete")
+ct.pc_hc=ct.pc$x[,1:5]%>%
+        dist(scale(.),method="euclidean")%>%
+        hclust(method="complete")
+
+
+plot(ct_hc,main="Hierarchical Cluster Dendrogram for census.ct")
+rect.hclust(ct_hc,k=10, border = 2:11)
+ct.cut=cutree(ct_hc,k=10)
+
+plot(ct.pc_hc,main="Hierarchical Cluster Dendrogram for first 5 PCs")
+rect.hclust(ct.pc_hc,k=10, border = 2:11)
+ct.pc.cut=cutree(ct.pc_hc,10)
+```
+
+
+```{r}
+index1=ct.cut[which(census.ct$County=="San Mateo")]
+index2=ct.pc.cut[which(census.ct$County=="San Mateo")]
+ct.M=census.ct[which(ct.cut==index1),]
+ct.pc.M=census.ct[which(ct.pc.cut==index2),]
+ct.M_ave=ct.M%>%
+          ungroup%>%
+          select(c(TotalPop:Minority))%>%
+          summarize_at(vars(TotalPop:Minority),mean)
+
+ct.pc.M_ave=ct.pc.M%>%
+              ungroup%>%
+              summarize_at(vars(TotalPop:Minority),mean)
+
+SanM=census.ct%>%
+          ungroup%>%
+          filter(County=="San Mateo")%>%
+          select(c(TotalPop:Minority))
+
+compare=data.frame(rbind(SanM,ct.M_ave,ct.pc.M_ave))
+row.names(compare)=c("San Mateo","Cluster Mean","PC Cluster Mean")
+compare
+```
+
+We see that the average of each category, in San Mateo County, Cluster contains San Mateo and PC Cluster caontains San Mateo, are roughly the same except White and Minority. 
+
+#Classification
+
+```{r}
+tmpwinner = county_winner %>% ungroup %>%
+mutate(state = state.name[match(state, state.abb)]) %>% ## state abbreviations
+mutate_at(vars(state, county), tolower) %>% ## to all lowercase
+mutate(county = gsub(" county| columbia| city| parish", "", county)) ## remove suffixes
+tmpcensus = census.ct %>%ungroup%>% mutate_at(vars(State, County), tolower)
+election.cl = tmpwinner %>%
+left_join(tmpcensus, by = c("state"="State", "county"="County")) %>%
+na.omit
+## saves meta information to attributes
+attr(election.cl, "location") = election.cl %>% select(c(county, fips, state, votes, pct))
+election.cl = election.cl %>% select(-c(county, fips, state, votes, pct))
+
+```
+
+```{r}
+set.seed(10)
+n = nrow(election.cl)
+in.trn= sample.int(n, 0.8*n)
+trn.cl = election.cl[ in.trn,]
+tst.cl = election.cl[-in.trn,]
+
+```
+
+```{r}
+set.seed(20)
+nfold = 10
+folds = sample(cut(1:nrow(trn.cl), breaks=nfold, labels=FALSE))
+
+
+calc_error_rate = function(predicted.value, true.value){
+return(mean(true.value!=predicted.value))
+}
+records = matrix(NA, nrow=3, ncol=2)
+colnames(records) = c("train.error","test.error")
+rownames(records) = c("tree","knn","lda")
+
+```
+
+
+```{r}
+XTrain=trn.cl%>%select(-candidate)
+YTrain=trn.cl$candidate
+XTest=tst.cl%>%select(-candidate)
+YTest=tst.cl$candidate
+```
+
+
+```{r}
+do.chunk <- function(chunkid, folddef, Xdat, Ydat, k){
+train = (folddef!=chunkid)
+Xtr = Xdat[train,]
+Ytr = Ydat[train]
+Xvl = Xdat[!train,]
+Yvl = Ydat[!train]
+## get classifications for current training chunks
+predYtr = knn(train = Xtr, test = Xtr, cl = Ytr, k = k)
+## get classifications for current test chunk
+predYvl = knn(train = Xtr, test = Xvl, cl = Ytr, k = k)
+data.frame(train.error = calc_error_rate(predYtr, Ytr),
+val.error = calc_error_rate(predYvl, Yvl))
+}
+
+```
+
+
+
+13.
+```{r}
+#setup=tree.control(nobs=nrow(trn.cl),minsize=5,mindev=1e-5)
+tree.cl=tree(candidate~.,data=trn.cl)
+summary(tree.cl)
+treecv=cv.tree(tree.cl,K=nfold,rand=folds,method="misclass")
+tree.cl_size=min(treecv$size[treecv$dev==min(treecv$dev)])
+tree.cl_pruned=prune.tree(tree.cl,best=tree.cl_size,method="misclass")
+pred.train=predict(tree.cl_pruned,trn.cl,type="class")
+pred.test=predict(tree.cl_pruned,tst.cl,type="class")
+train.err1=calc_error_rate(pred.train,YTrain)
+test.err1=calc_error_rate(pred.test,YTest)
+records[1,]=c(train.err1,test.err1)
+records
+
+draw.tree(tree.cl,nodeinfo=TRUE,cex=0.5,size=2,digits=2)
+title("Before Pruning")
+draw.tree(tree.cl_pruned,nodeinfo=TRUE,cex=0.8,size=2,digits=2)
+title("After Pruning")
+summary(tree.cl_pruned)
+```
+
+14.
+```{r}
+kv=c(1, seq(5, 50, length.out=10))
+error.folds=NULL
+for (j in kv){
+tmp = ldply(1:nfold, do.chunk, folddef=folds, Xdat=XTrain,Ydat=YTrain,k = j)
+error.folds = rbind(error.folds, tmp)
+}
+
+num=c(rep(0:10,each=10))
+df=cbind(num,error.folds)
+colnames(df)=c("N","train.error","test.error")
+average=df%>%
+    group_by(N) %>%
+    summarise_at(.funs=funs(mean),.var=vars(train.error,test.error))
+best_n=min(average$N[average$test.error==min(average$test.error)])
+knn_pred_train=knn(train=XTrain,test=XTrain,cl=YTrain,k=best_n)
+knn_pred_test=knn(train=XTrain,test=XTest,cl=YTrain,k=best_n)
+train.err2=calc_error_rate(knn_pred_train,YTrain)
+test.err2=calc_error_rate(knn_pred_test,YTest)
+records[2,]=c(train.err2,test.err2)
+records
+```
+
+
+15.
+```{r}
+pca.records = matrix(NA, nrow=3, ncol=2)
+colnames(pca.records) = c("train.error","test.error")
+rownames(pca.records) = c("tree","knn","lda")
+```
+
+```{r}
+trn.pca=trn.cl%>%
+        dplyr::select(Men:Minority)%>%
+        prcomp(scale=TRUE,center=TRUE)
+#names(trn.pca)
+#trn.pca$rotation
+#dim(trn.pca$x)
+trn.dev=trn.pca$sdev
+trn_pve=trn.dev^2/sum(trn.dev^2)
+trn_cumu_pve=cumsum(trn_pve)
+min.trn.pc=min(which(trn_cumu_pve > 0.9))
+print(min.trn.pc)
+par(mfrow=c(2, 2))
+plot(trn_pve,xlab = "Principal Component",ylab = "PVE",main="PVE for Election",type="b")
+#plot(ele_cumu_pve, type="l", lwd=3,
+#     xlab = "Principal Component",
+#     ylab = "Cumulative PVE",ylim = c(0,1),main="Cumulative PVE for county data")
+
+```
+
+The minimum number of PCs needed to capture 90% of the variance is 13.
+
+
+16.
+
+```{r}
+tr.pca=data.frame(candidate=trn.cl$candidate,trn.pca$x)
+test.pca=tst.cl%>%
+        dplyr::select(Men:Minority)%>%
+        prcomp(scale=TRUE,center=TRUE)
+test.pca=data.frame(candidate=tst.cl$candidate,test.pca$x)
+tr.pca=tr.pca%>%
+        dplyr::rename(Men=PC1,White=PC2,Citizen=PC3,Income=PC4,
+              IncomeErr=PC5,IncomePerCap=PC6,IncomePerCapErr=PC7,
+              Poverty=PC8,ChildPoverty=PC9,Professional=PC10,
+              Service=PC11,Office=PC12,Production=PC13,Drive=PC14,
+              Carpool=PC15,Transit=PC16,OtherTransp=PC17,
+              WorkAtHome=PC18,MeanCommute=PC19,Employed=PC20,
+              PrivateWork=PC21,SelfEmployed=PC22,FamilyWork=PC23,
+              Unemployment=PC24,Minority=PC25)
+test.pca=test.pca%>%
+              dplyr::rename(Men=PC1,White=PC2,Citizen=PC3,Income=PC4,
+              IncomeErr=PC5,IncomePerCap=PC6,IncomePerCapErr=PC7,
+              Poverty=PC8,ChildPoverty=PC9,Professional=PC10,
+              Service=PC11,Office=PC12,Production=PC13,Drive=PC14,
+              Carpool=PC15,Transit=PC16,OtherTransp=PC17,
+              WorkAtHome=PC18,MeanCommute=PC19,Employed=PC20,
+              PrivateWork=PC21,SelfEmployed=PC22,FamilyWork=PC23,
+              Unemployment=PC24,Minority=PC25)
+```
+
+17.
+
+```{r}
+tre.trn.pca=tree(candidate~.,data=tr.pca)
+summary(tre.trn.pca)
+trecv.pca=cv.tree(tre.trn.pca,K=nfold,rand=folds,method="misclass")
+tre.cl.pca_size=min(trecv.pca$size[trecv.pca$dev==min(trecv.pca$dev)])
+tre.cl.pca_pruned=prune.tree(tre.trn.pca,
+                            best=tre.cl.pca_size,method="misclass")
+tre_pca.pred.train=predict(tre.cl.pca_pruned,tr.pca,type="class")
+tre_pca.pred.test=predict(tre.cl.pca_pruned,test.pca,type="class")
+train.cpa.err1=calc_error_rate(tre_pca.pred.train,YTrain)
+test.cpa.err1=calc_error_rate(tre_pca.pred.test,YTest)
+pca.records[1,]=c(train.cpa.err1,test.cpa.err1)
+pca.records
+```
+
+
+18.
+```{r}
+XTrain.pca=tr.pca%>%select(-candidate)
+YTrain.pca=tr.pca$candidate
+XTest.pca=test.pca%>%select(-candidate)
+YTest.ca=test.pca$candidate
+```
+
+```{r}
+kv=c(1, seq(5, 50, length.out=10))
+error.folds=NULL
+for (j in kv)
+{
+  tmp=ldply(1:nfold,do.chunk, folddef=folds, Xdat=XTrain.pca,
+                              Ydat=YTrain.pca,k = j)
+  error.folds = rbind(error.folds, tmp)
+}
+
+num=c(rep(0:10,each=10))
+df.pca=cbind(num,error.folds)
+colnames(df.pca)=c("N","train.error","test.error")
+ave.pca=df.pca%>%
+    group_by(N) %>%
+    summarise_at(.funs=funs(mean),.var=vars(train.error,test.error))
+best_n.pca=min(ave.pca$N[ave.pca$test.error==min(ave.pca$test.error)])
+knn_pred_tr.pca=knn(train=XTrain.pca,test=XTrain.pca,
+                    cl=YTrain.pca,k=best_n.pca)
+knn_pred_tst.pca=knn(train=XTrain.pca,test=XTest.pca,
+                    cl=YTrain.pca,k=best_n.pca)
+train.pca.err2=calc_error_rate(knn_pred_train,YTrain)
+test.pca.err2=calc_error_rate(knn_pred_test,YTest)
+pca.records[2,]=c(train.pca.err2,test.pca.err2)
+pca.records
+```
+
+
+19. 
+
+```{r}
+draw.tree(tree.cl_pruned,nodeinfo=TRUE,cex=0.8,size=2,digits=2)
+title("After Pruning")
+```
+
+During tree model, in the Pruning Tree Graph, we see that the first classification that separate the observations is Transit (Public Transporation). All counties with Transit<1.115% have 84.4% of them have majority electing Trump. This is surprising to us at first because we thought White would be the first category to be considered in tree. Since we know that Trump insist on building wall between US and Mexico, and it provoked a lot of Minorities. However, after some research on President Trump's political view during that time, we realize transit may be as important as the ethnicity because Trump had proposed a lot of policies that favored farmers in midwest and in south region. These states have inconvenient public transporation and thus most household travel by trucks and cars. People lived in the city may favor more toward Clinton since she represent Democratic Party, and people are less conservative than people in rural area. So this can explain the reason Transit is an important feature in this decision tree. 
+
+To improve the model in predicting election result, we believe that, for each county, adding average age, average households with at least one member under 20 years, and  average households with at least one member aged 65 years or over can improve model prediction. Investigating in structures of household members in counties may be an important indicator of wether people are more lean towards Democrat or Republican. We hypothesis that the older the people in the county, the more votes Republican will get. On the other hand, the younger the people in the county, the more votes Democrat will get. The most important reason is that people with younger age are more open minded and diverse. Most of them pursue for equailty and are more comforable discuss topics that older generations may try to ignore. This ideology is consistent with  Democrat Party.
+
+
+
+
+20.
+
+```{r}
+#ROC of Tree
+predict_tree=predict(tree.cl_pruned,XTest,type="vector")[,13]
+pred_tree=prediction(predict_tree,droplevels(YTest))
+perf_tree=performance(pred_tree,measure="tpr",x.measure="fpr")
+auc_tree=performance(pred_tree,measure="auc")
+```
+
+```{r, warning=FALSE, message=FALSE}
+#ROC of log
+glm.fit=glm(candidate~., data =trn.cl,family=binomial("logit"))
+fitted_values<-predict(glm.fit, newdata=XTest, type="response")
+fitted_values1<-predict(glm.fit, newdata=XTrain, type="response")
+pred_log=prediction(fitted_values,droplevels(YTest))
+perf_log=performance(pred_log,measure="tpr",x.measure="fpr")
+auc_log=performance(pred_log,measure="auc")
+```
+
+```{r, warning=FALSE, message=FALSE}
+#install.packages("randomForest")
+library(randomForest)
+#bagging 
+#bag.election <- randomForest(candidate ~ ., data=trn.cl, mtry=23, importance=TRUE)
+rf=randomForest(candidate~.,data=droplevels(trn.cl), mtry=sqrt(33),ntre=20, importance=TRUE)
+plot(rf)
+print(rf)
+train_rf=predict(rf, XTrain,type="response")
+trn.rf.err=table(pred=train_rf,truth=YTrain)
+trn.rf.err=trn.rf.err[,c(7,13)]
+train.rf.err = 1-sum(diag(trn.rf.err))/sum(trn.rf.err)
+rf.test=predict(rf,newdata=XTest)
+tst.rf.err=table(pred=rf.test,truth=YTest)
+tst.rf.err=tst.rf.err[,c(7,13)]
+test.rf.err= 1-sum(diag(tst.rf.err))/sum(tst.rf.err)
+train.rf.err
+test.rf.err
+```
+
+```{r}
+#ROC of random forest
+rf_pred=predict(rf,newdata = XTest,type="vote")[,2]
+pred_rf=prediction(rf_pred,droplevels(YTest))
+perf_rf=performance(pred_rf,measure="tpr",x.measure="fpr")
+auc_rf=performance(pred_rf,measure="auc")
+```
+
+
+```{r}
+#Plot ROC
+plot(perf_tree)
+plot(perf_log,col="red",add=TRUE)
+plot(perf_rf,col="green",add=TRUE)
+legend(0.7,0.3,col=c(1,2,3),legend=c("Tree","Logistic","Random Forest"),lty=1,lwd=c(1,1,1))
+auc=matrix(NA, nrow=3, ncol=1)
+colnames(auc) = c("AUC")
+rownames(auc) = c("tree","logistic","random forest")
+auc[1,]=round(auc_tree@y.values[[1]],3)
+auc[2,]=round(auc_log@y.values[[1]],3)
+auc[3,]=round(auc_rf@y.values[[1]],3)
+auc
+```
+
+
+
+
+```{r}
+lrecords=matrix(NA, nrow=4, ncol=2)
+colnames(lrecords) = c("train.error","test.error")
+rownames(lrecords) = c("tree","knn","logistic","random forest")
+lrecords[1,]=c(train.err1,test.err1)
+lrecords[2,]=c(train.err2,test.err2)
+lrecords[4,]=c(train.rf.err,test.rf.err)
+```
+
+
+```{r}
+#Errors of log
+table1=table(Truth=YTrain,
+              prediction = ifelse(fitted_values1<0.5,
+              "Trump","Clinton"))[c(7,13),]
+table2=table(Truth=YTest,
+              prediction = ifelse(fitted_values<0.5,
+              "Trump","Clinton"))[c(7,13),]
+train.err3=(table1[1,1]+table1[2,2])/sum(table1)
+test.err3=(table2[1,1]+table2[2,2])/sum(table2)
+lrecords[3,]=c(train.err3,test.err3)
+
+```
+
+
+
+From the graph and chart above, we see that because random forest has the highest AUC and the lowest testing error for predicting votes, random forest is a better preidction model for 2016 election. Noice that knn has the largest training and testing eroor among four models.
+
+
+
+
+```{r,echo=F}
+impt=importance(rf)
+varImpPlot(rf,sort = T,n.var =6,main = "Variable Importance for rf.election")
+```
+
+
+Compare with Knn on TRaining error
+
+
+
+
+
+
+
+
+
